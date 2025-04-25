@@ -1,0 +1,42 @@
+# Logfile created on 2025-01-05 18:43:41 +0300 by logger.rb/v1.6.1
+[2025-01-05 18:43:42 +0300] INFO: Starting processing of port 443
+[2025-01-05 18:43:45 +0300] ERROR: An error occurred: Failed to open TCP connection to mypromo.ru:443 (No connection could be made because the target machine actively refused it. - connect(2) for "mypromo.ru" port 443)
+[2025-01-05 18:43:45 +0300] ERROR: C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/net-http-0.6.0/lib/net/http.rb:1665:in `initialize'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/net-http-0.6.0/lib/net/http.rb:1665:in `open'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/net-http-0.6.0/lib/net/http.rb:1665:in `block in connect'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/timeout-0.4.2/lib/timeout.rb:183:in `block in timeout'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/timeout-0.4.2/lib/timeout.rb:190:in `timeout'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/net-http-0.6.0/lib/net/http.rb:1663:in `connect'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/net-http-0.6.0/lib/net/http.rb:1642:in `do_start'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/net-http-0.6.0/lib/net/http.rb:1631:in `start'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/net-http-0.6.0/lib/net/http.rb:2375:in `request'
+C:/Ruby33-x64/PROJECTS/WebP/website_parser.rb:514:in `fetch_html'
+C:/Ruby33-x64/PROJECTS/WebP/website_parser.rb:196:in `fetch_html_with_retry'
+C:/Ruby33-x64/PROJECTS/WebP/website_parser.rb:189:in `perform_port_processing'
+C:/Ruby33-x64/PROJECTS/WebP/website_parser.rb:173:in `process_port'
+C:/Ruby33-x64/PROJECTS/WebP/website_parser.rb:51:in `block (2 levels) in parse'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/timeout-0.4.2/lib/timeout.rb:183:in `block in timeout'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/timeout-0.4.2/lib/timeout.rb:38:in `handle_timeout'
+C:/Ruby33-x64/lib/ruby/gems/3.3.0/gems/timeout-0.4.2/lib/timeout.rb:192:in `timeout'
+C:/Ruby33-x64/PROJECTS/WebP/website_parser.rb:50:in `block in parse'
+C:/Ruby33-x64/PROJECTS/WebP/website_parser.rb:46:in `each'
+C:/Ruby33-x64/PROJECTS/WebP/website_parser.rb:46:in `each_with_index'
+C:/Ruby33-x64/PROJECTS/WebP/website_parser.rb:46:in `parse'
+rabota.rb:199:in `block in parse_website'
+[2025-01-05 18:43:45 +0300] ERROR: Empty HTML content received from port 443
+[2025-01-05 18:43:45 +0300] INFO: Port 443 processed in 2.33 seconds
+[2025-02-15 16:25:09 +0300] INFO: Starting processing of port 443
+[2025-02-15 16:25:10 +0300] INFO: HTML saved to file: parsed_html/hkmods.ru_port_443_20250215_162510.html
+[2025-02-15 16:25:11 +0300] INFO: Port 443 processed in 1.72 seconds
+[2025-02-15 16:39:23 +0300] INFO: Starting processing of port 443
+[2025-02-15 16:39:24 +0300] INFO: HTML saved to file: parsed_html/hkmods.ru_port_443_20250215_163924.html
+[2025-02-15 16:39:25 +0300] INFO: Port 443 processed in 1.26 seconds
+[2025-02-16 12:33:07 +0300] INFO: Starting processing of port 443
+[2025-02-16 12:33:08 +0300] INFO: HTML saved to file: parsed_html/yandex.com_port_443_20250216_123308.html
+[2025-02-16 12:33:09 +0300] INFO: Port 443 processed in 2.11 seconds
+[2025-02-16 14:02:33 +0300] INFO: Starting processing of port 443
+[2025-02-16 14:02:34 +0300] INFO: HTML saved to file: parsed_html/hkmods.ru_port_443_20250216_140234.html
+[2025-02-16 14:02:35 +0300] INFO: Port 443 processed in 1.34 seconds
+[2025-04-02 18:07:33 +0300] INFO: Starting processing of port 443
+[2025-04-02 18:07:34 +0300] INFO: HTML saved to file: parsed_html/hkmods.ru_port_443_20250402_180734.html
+[2025-04-02 18:07:34 +0300] INFO: Port 443 processed in 1.55 seconds
