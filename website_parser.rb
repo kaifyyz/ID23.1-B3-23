@@ -295,11 +295,12 @@ module WebsiteParser
         yield
       rescue => e
         debug_log(:error, "Lemmatization process failed: #{e.message}")
-        [] 
+        [] # Return empty array if lemmatization fails
       end
     end
     
     def extract_title(doc)
+      # Safely extract title with fallback to empty string
       doc.title.to_s.strip
     end
     
@@ -546,7 +547,7 @@ module WebsiteParser
   
     def some_method
       begin
-        #  код, который может вызвать ошибку
+        # Ваш код, который может вызвать ошибку
         doc = Nokogiri::HTML(html)
         # Остальной код
       rescue => e
