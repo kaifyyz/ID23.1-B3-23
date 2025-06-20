@@ -10,9 +10,6 @@ require 'strscan'
 require 'lemmatizer'
 require 'logger'
 require 'json'
-require 'openai'
-require 'base64'
-require 'wicked_pdf'
 require_relative 'website_parser'
 
 include Fox
@@ -24,9 +21,7 @@ class GUIInterface < FXMainWindow
     @parser = nil
     @ports = WebsiteParser::Parser.load_ports_from_file
 
-    main_frame = FXVerticalFrame.new(self, opts: LAYOUT_FILL) do |frame|
-      frame.backColor = FXRGB(245, 247, 250)
-    end
+    main_frame = FXVerticalFrame.new(self, opts: LAYOUT_FILL)
     create_control_panel(main_frame)
     create_progress_panel(main_frame)
     create_tab_book(main_frame)
@@ -41,71 +36,42 @@ class GUIInterface < FXMainWindow
   private
 
   def create_control_panel(parent)
-    control_frame = FXVerticalFrame.new(parent, opts: LAYOUT_FILL_X) do |frame|
-      frame.backColor = FXRGB(245, 247, 250) 
-    end
-
+    control_frame = FXVerticalFrame.new(parent, opts: LAYOUT_FILL_X)
+    
     url_frame = FXHorizontalFrame.new(control_frame, opts: LAYOUT_FILL_X)
-    FXLabel.new(url_frame, "URL:", opts: LAYOUT_CENTER_Y) do |label|
-      label.textColor = FXRGB(151, 2, 2) 
-    end
-    @url_input = FXTextField.new(url_frame, 40, opts: LAYOUT_FILL_X | FRAME_SUNKEN | FRAME_THICK) do |field|
-      field.backColor = FXRGB(255, 255, 255)
-      field.textColor = FXRGB(0, 0, 0) 
-    end
-
+    FXLabel.new(url_frame, "URL:", opts: LAYOUT_CENTER_Y)
+    @url_input = FXTextField.new(url_frame, 40, opts: LAYOUT_FILL_X|FRAME_SUNKEN|FRAME_THICK)
+    
     search_frame = FXHorizontalFrame.new(control_frame, opts: LAYOUT_FILL_X)
-    FXLabel.new(search_frame, "Искать порт:", opts: LAYOUT_CENTER_Y) do |label|
-      label.textColor = FXRGB(151, 2, 2) 
-    end
-    @port_search = FXTextField.new(search_frame, 20, opts: FRAME_SUNKEN | FRAME_THICK) do |field|
-      field.backColor = FXRGB(255, 255, 255)
-      field.textColor = FXRGB(0, 0, 0) 
-    end
-    @search_button = FXButton.new(search_frame, "Искать", opts: BUTTON_NORMAL | LAYOUT_RIGHT) do |button|
-      button.backColor = FXRGB(151, 2, 2) 
-      button.textColor = FXRGB(255, 255, 255) 
-    end
-
+    FXLabel.new(search_frame, "Search port:", opts: LAYOUT_CENTER_Y)
+    @port_search = FXTextField.new(search_frame, 20, opts: FRAME_SUNKEN|FRAME_THICK)
+    @search_button = FXButton.new(search_frame, "Find", opts: BUTTON_NORMAL|LAYOUT_RIGHT)
+    
     ports_frame = FXHorizontalFrame.new(control_frame, opts: LAYOUT_FILL_X)
-    FXLabel.new(ports_frame, "Порты:", opts: LAYOUT_CENTER_Y) do |label|
-      label.textColor = FXRGB(151, 2, 2) 
-    end
-    @port_list = FXList.new(ports_frame, opts: LIST_EXTENDEDSELECT | LAYOUT_FILL_X | FRAME_SUNKEN | FRAME_THICK) do |list|
-      list.backColor = FXRGB(255, 255, 255)
-      list.textColor = FXRGB(0, 0, 0) 
-    end
+    FXLabel.new(ports_frame, "Ports:", opts: LAYOUT_CENTER_Y)
+    @port_list = FXList.new(ports_frame, opts: LIST_EXTENDEDSELECT|LAYOUT_FILL_X|FRAME_SUNKEN|FRAME_THICK)
     @port_list.numVisible = 5
+    
+    populate_port_list(@ports)
 
     button_frame = FXHorizontalFrame.new(control_frame, opts: LAYOUT_FILL_X)
-    @parse_button = FXButton.new(button_frame, "Анализировать", opts: BUTTON_NORMAL | LAYOUT_CENTER_X) do |button|
-      button.backColor = FXRGB(151, 2, 2) 
-      button.textColor = FXRGB(255, 255, 255) 
-    end
-    @json_button = FXButton.new(button_frame, "Экспортировать в JSON", opts: BUTTON_NORMAL | LAYOUT_CENTER_X) do |button|
-      button.backColor = FXRGB(151, 2, 2) 
-      button.textColor = FXRGB(255, 255, 255)
-      button.disable
-    end
+    @parse_button = FXButton.new(button_frame, "Analyze", opts: BUTTON_NORMAL|LAYOUT_CENTER_X)
+    @json_button = FXButton.new(button_frame, "Export JSON", opts: BUTTON_NORMAL|LAYOUT_CENTER_X)
+    @json_button.disable
   end
 
   def create_progress_panel(parent)
-    progress_frame = FXHorizontalFrame.new(parent, opts: LAYOUT_FILL_X | FRAME_SUNKEN) do |frame|
-      frame.backColor = FXRGB(245, 247, 250)
-    end
-    @progress_bar = FXProgressBar.new(progress_frame, nil, 0, PROGRESSBAR_NORMAL | LAYOUT_FILL_X | LAYOUT_FILL_Y) do |bar|
-      bar.backColor = FXRGB(255, 255, 255)
-      bar.barColor = FXRGB(146, 2, 2) 
-    end
-    @progress_label = FXLabel.new(progress_frame, "0%", nil, LAYOUT_CENTER_Y | LAYOUT_RIGHT) do |label|
-      label.textColor = FXRGB(151, 2, 2) 
-    end
+    progress_frame = FXHorizontalFrame.new(parent, opts: LAYOUT_FILL_X|FRAME_SUNKEN)
+    @progress_bar = FXProgressBar.new(progress_frame, nil, 0,
+      PROGRESSBAR_NORMAL|LAYOUT_FILL_X|LAYOUT_FILL_Y)
+    @progress_bar.total = 100
+    @progress_bar.progress = 0
+    @progress_label = FXLabel.new(progress_frame, "0%", nil,
+      LAYOUT_CENTER_Y|LAYOUT_RIGHT)
   end
 
   def create_tab_book(parent)
-    @tab_book = FXTabBook.new(parent, opts: LAYOUT_FILL | TABBOOK_NORMAL) do |book|
-      book.backColor = FXRGB(245, 247, 250) 
-    end
+    @tab_book = FXTabBook.new(parent, opts: LAYOUT_FILL|TABBOOK_NORMAL)
     create_basic_tabs
     create_tokenization_tabs
     create_lemmatization_tabs
@@ -114,106 +80,61 @@ class GUIInterface < FXMainWindow
   def create_basic_tabs
     # Structure tab
     tab_structure = FXTabItem.new(@tab_book, "Structure", nil)
-    frame_structure = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL) do |frame|
-      frame.backColor = FXRGB(151, 2, 2) 
-    end
-    @structure_text = FXText.new(frame_structure, opts: LAYOUT_FILL | TEXT_WORDWRAP) do |text|
-      text.backColor = FXRGB(255, 255, 255) 
-      text.textColor = FXRGB(0, 0, 0) 
-      text.editable = false
-    end
-  
+    frame_structure = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL)
+    @structure_text = FXText.new(frame_structure, opts: LAYOUT_FILL|TEXT_WORDWRAP)
+    @structure_text.editable = false
+
     # HTML tab
     tab_html = FXTabItem.new(@tab_book, "HTML Code", nil)
-    frame_html = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL) do |frame|
-      frame.backColor = FXRGB(151, 2, 2)
-    end
-    @html_text = FXText.new(frame_html, opts: LAYOUT_FILL | TEXT_WORDWRAP) do |text|
-      text.backColor = FXRGB(255, 255, 255)
-      text.textColor = FXRGB(0, 0, 0) 
-      text.editable = false
-    end
-  
+    frame_html = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL)
+    @html_text = FXText.new(frame_html, opts: LAYOUT_FILL|TEXT_WORDWRAP)
+    @html_text.editable = false
+
     # Meta tab
     tab_meta = FXTabItem.new(@tab_book, "Meta Information", nil)
-    frame_meta = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL) do |frame|
-      frame.backColor = FXRGB(151, 2, 2) 
-    end
-    @meta_text = FXText.new(frame_meta, opts: LAYOUT_FILL | TEXT_WORDWRAP) do |text|
-      text.backColor = FXRGB(255, 255, 255) 
-      text.textColor = FXRGB(0, 0, 0) 
-      text.editable = false
-    end
+    frame_meta = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL)
+    @meta_text = FXText.new(frame_meta, opts: LAYOUT_FILL|TEXT_WORDWRAP)
+    @meta_text.editable = false
   end
-  
+
   def create_tokenization_tabs
     # Structure tokens tab
     tab_structure_tokens = FXTabItem.new(@tab_book, "Structure Tokens", nil)
-    frame_structure_tokens = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL) do |frame|
-      frame.backColor = FXRGB(151, 2, 2)
-    end
-    @structure_tokens_text = FXText.new(frame_structure_tokens, opts: LAYOUT_FILL | TEXT_WORDWRAP) do |text|
-      text.backColor = FXRGB(255, 255, 255) 
-      text.textColor = FXRGB(0, 0, 0) 
-      text.editable = false
-    end
-  
+    frame_structure_tokens = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL)
+    @structure_tokens_text = FXText.new(frame_structure_tokens, opts: LAYOUT_FILL|TEXT_WORDWRAP)
+    @structure_tokens_text.editable = false
+
     # HTML tokens tab
     tab_html_tokens = FXTabItem.new(@tab_book, "HTML Tokens", nil)
-    frame_html_tokens = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL) do |frame|
-      frame.backColor = FXRGB(151, 2, 2) 
-    end
-    @html_tokens_text = FXText.new(frame_html_tokens, opts: LAYOUT_FILL | TEXT_WORDWRAP) do |text|
-      text.backColor = FXRGB(255, 255, 255) 
-      text.textColor = FXRGB(0, 0, 0) 
-      text.editable = false
-    end
-  
+    frame_html_tokens = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL)
+    @html_tokens_text = FXText.new(frame_html_tokens, opts: LAYOUT_FILL|TEXT_WORDWRAP)
+    @html_tokens_text.editable = false
+
     # Code tokens tab
     tab_code_tokens = FXTabItem.new(@tab_book, "Code Tokens", nil)
-    frame_code_tokens = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL) do |frame|
-      frame.backColor = FXRGB(151, 2, 2) 
-    end
-    @code_tokens_text = FXText.new(frame_code_tokens, opts: LAYOUT_FILL | TEXT_WORDWRAP) do |text|
-      text.backColor = FXRGB(255, 255, 255) 
-      text.textColor = FXRGB(0, 0, 0 ) 
-      text.editable = false
-    end
+    frame_code_tokens = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL)
+    @code_tokens_text = FXText.new(frame_code_tokens, opts: LAYOUT_FILL|TEXT_WORDWRAP)
+    @code_tokens_text.editable = false
   end
-  
+
   def create_lemmatization_tabs
     # Structure lemmas tab
     tab_structure_lemmas = FXTabItem.new(@tab_book, "Structure Lemmas", nil)
-    frame_structure_lemmas = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL) do |frame|
-      frame.backColor = FXRGB(151, 2, 2) 
-    end
-    @structure_lemmas_text = FXText.new(frame_structure_lemmas, opts: LAYOUT_FILL | TEXT_WORDWRAP) do |text|
-      text.backColor = FXRGB(255, 255, 255) 
-      text.textColor = FXRGB(0, 0, 0) 
-      text.editable = false
-    end
-  
+    frame_structure_lemmas = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL)
+    @structure_lemmas_text = FXText.new(frame_structure_lemmas, opts: LAYOUT_FILL|TEXT_WORDWRAP)
+    @structure_lemmas_text.editable = false
+
     # HTML lemmas tab
     tab_html_lemmas = FXTabItem.new(@tab_book, "HTML Lemmas", nil)
-    frame_html_lemmas = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL) do |frame|
-      frame.backColor = FXRGB(151, 2, 2) # background color
-    end
-    @html_lemmas_text = FXText.new(frame_html_lemmas, opts: LAYOUT_FILL | TEXT_WORDWRAP) do |text|
-      text.backColor = FXRGB(255, 255, 255)
-      text.textColor = FXRGB(0, 0, 0) 
-      text.editable = false
-    end
-  
+    frame_html_lemmas = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL)
+    @html_lemmas_text = FXText.new(frame_html_lemmas, opts: LAYOUT_FILL|TEXT_WORDWRAP)
+    @html_lemmas_text.editable = false
+
     # Code lemmas tab
     tab_code_lemmas = FXTabItem.new(@tab_book, "Code Lemmas", nil)
-    frame_code_lemmas = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL) do |frame|
-      frame.backColor = FXRGB(151, 2, 2)
-    end
-    @code_lemmas_text = FXText.new(frame_code_lemmas, opts: LAYOUT_FILL | TEXT_WORDWRAP) do |text|
-      text.backColor = FXRGB(255, 255, 255)
-      text.textColor = FXRGB(0, 0, 0) 
-      text.editable = false
-    end
+    frame_code_lemmas = FXVerticalFrame.new(@tab_book, opts: LAYOUT_FILL)
+    @code_lemmas_text = FXText.new(frame_code_lemmas, opts: LAYOUT_FILL|TEXT_WORDWRAP)
+    @code_lemmas_text.editable = false
   end
 
   def create_handlers
@@ -248,10 +169,10 @@ class GUIInterface < FXMainWindow
     end
     
     if url.empty?
-      FXMessageBox.warning(self, MBOX_OK, "Ошибка", "Введите URL")
+      FXMessageBox.warning(self, MBOX_OK, "Error", "Please enter a URL")
       return
     elsif selected_ports.empty?
-      FXMessageBox.warning(self, MBOX_OK, "Ошибка", "Выберите один из портов")
+      FXMessageBox.warning(self, MBOX_OK, "Error", "Please select at least one port")
       return
     end
     
@@ -278,13 +199,13 @@ class GUIInterface < FXMainWindow
           @json_button.enable
           @progress_bar.progress = 100
           @progress_label.text = "100%"
-          FXMessageBox.information(self, MBOX_OK, "Успех", "Анализ веб-сайта завершен!")
+          FXMessageBox.information(self, MBOX_OK, "Success", "Website analysis complete!")
         end
       rescue StandardError => e
         getApp.addChore do
           @parse_button.enable
           @json_button.disable
-          FXMessageBox.error(self, MBOX_OK, "Ошибка", "Не удалось выполнить парсинг веб-сайта: #{e.message}")
+          FXMessageBox.error(self, MBOX_OK, "Error", "Failed to parse website: #{e.message}")
         end
       end
     end
@@ -297,7 +218,7 @@ class GUIInterface < FXMainWindow
       json_data = @parser.to_json_data(@current_results)
       
       # Create a save dialog
-      dialog = FXFileDialog.new(self, "Сохранить JSON")
+      dialog = FXFileDialog.new(self, "Save JSON Analysis")
       dialog.patternList = ["JSON Files (*.json)"]
       dialog.filename = "website_analysis_#{Time.now.strftime('%Y%m%d_%H%M%S')}.json"
       
@@ -305,10 +226,10 @@ class GUIInterface < FXMainWindow
         File.open(dialog.filename, 'w') do |file|
           file.write(JSON.pretty_generate(json_data))
         end
-        FXMessageBox.information(self, MBOX_OK, "Успех", "JSON данные экспортированы успешно!")
+        FXMessageBox.information(self, MBOX_OK, "Success", "JSON data exported successfully!")
       end
     rescue StandardError => e
-      FXMessageBox.error(self, MBOX_OK, "Ошибка", "Ошибка экспорта JSON: #{e.message}")
+      FXMessageBox.error(self, MBOX_OK, "Error", "Failed to export JSON: #{e.message}")
     end
   end
   
