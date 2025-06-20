@@ -10,6 +10,7 @@ require 'strscan'
 require 'lemmatizer'
 require 'logger'
 require 'json'
+require 'selenium-webdriver' # Добавлено для совместимости
 require_relative 'website_parser'
 
 include Fox
@@ -26,7 +27,7 @@ class GUIInterface < FXMainWindow
       secondary_color: FXRGB(45, 45, 45), # Темно-серый для фона
       text_color: FXRGB(255, 255, 255), # Белый текст для темной темы
       text_color_alt: FXRGB(0, 0, 0), # Черный для светлого фона
-      background_color: FXRGB(76, 88, 102), # Чуть более светлый темный фон
+      background_color: FXRGB(50, 50, 50), # Чуть более светлый темный фон
       highlight_color: FXRGB(100, 100, 100), # Для эффектов наведения
       font: FXFont.new(app, "Roboto,140,normal") # Современный шрифт, 14px
     }
@@ -212,7 +213,7 @@ class GUIInterface < FXMainWindow
     frame_code_lemmas = FXVerticalFrame.new(@tab_book, :opts => LAYOUT_FILL)
     frame_code_lemmas.backColor = FXRGB(255, 255, 255)
     @code_lemmas_text = FXText.new(frame_code_lemmas, :opts => LAYOUT_FILL|TEXT_WORDWRAP)
-    style_text_area(@code_lemmas_text) # Исправлено: использование правильного текстового поля
+    style_text_area(@code_lemmas_text)
   end
 
   # Метод для стилизации кнопок
