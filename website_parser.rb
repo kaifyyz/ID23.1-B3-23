@@ -1,3 +1,16 @@
+require 'nokogiri'
+require 'open-uri'
+require 'net/http'
+require 'openssl'
+require 'fileutils'
+require 'thread'
+require 'timeout'
+require 'strscan'
+require 'lemmatizer'
+require 'logger'
+require 'json'
+require 'selenium-webdriver' # Для обработки JavaScript
+
 module WebsiteParser
   class Parser
     USER_AGENT = 'Ruby/WebsiteParser'
@@ -19,11 +32,12 @@ module WebsiteParser
     attr_reader :uri, :debug_info, :logger
 
     def initialize(url, progress_callback: nil, logger: nil, debug_level: :info)
-      @url = ensure_url_scheme(url)
+      @url = ensure_url_scheme(url) # Используем метод для добавления схемы
       @uri = URI(@url)
       @progress_callback = progress_callback
       @debug_level = DEBUG_LEVELS[debug_level] || DEBUG_LEVELS[:info]
       
+      # Инициализация логгера
       @logger = logger || Logger.new(LOG_FILE)
       @logger.formatter = proc do |severity, datetime, progname, msg|
         "[#{datetime}] #{severity}: #{msg}\n"
@@ -32,6 +46,8 @@ module WebsiteParser
       FileUtils.mkdir_p(HTML_DIR) unless File.directory?(HTML_DIR)
       @lemmatizer = Lemmatizer.new
       
+      # Инициализация Selenium WebDriver для обработки JavaScript
+      @driver = initialize_webdriver
       @debug_info = {
         connection_attempts: {},
         parsing_times: {},
@@ -40,6 +56,7 @@ module WebsiteParser
     end
 
     def parse(ports)
+      # Анализ портов
       results = []
       total_ports = ports.size
       
@@ -52,43 +69,50 @@ module WebsiteParser
             results << result
           end
         rescue SocketError => e
-          debug_log(:error, "Network error on port #{port}: #{e.message}")
-          results << create_error_result(port, "Network connection failed: #{e.message}")
+          debug_log(:error, "Сетевая ошибка на порте #{port}: #{e.message}")
+          results << create_error_result(port, "Ошибка сетевого соединения: #{e.message}")
         rescue OpenSSL::SSL::SSLError => e
-          debug_log(:error, "SSL error on port #{port}: #{e.message}")
-          results << create_error_result(port, "SSL connection error: #{e.message}")
+          debug_log(:error, "Ошибка SSL на порте #{port}: #{e.message}")
+          results << create_error_result(port, "Ошибка SSL-соединения: #{e.message}")
         rescue Timeout::Error => e
-          debug_log(:error, "Timeout on port #{port}: #{e.message}")
-          results << create_error_result(port, "Connection timed out")
+          debug_log(:error, "Тайм-аут на порте #{port}: #{e.message}")
+          results << create_error_result(port, "Истекло время ожидания соединения")
+        rescue Selenium::WebDriver::Error::WebDriverError => e
+          debug_log(:error, "Ошибка WebDriver на порте #{port}: #{e.message}")
+          results << create_error_result(port, "Ошибка обработки JavaScript: #{e.message}")
         rescue StandardError => e
-          debug_log(:error, "Unexpected error on port #{port}: #{e.message}")
+          debug_log(:error, "Непредвиденная ошибка на порте #{port}: #{e.message}")
           results << create_error_result(port, e.message)
         end
       end
       
       results
+    ensure
+      @driver.quit if @driver # Закрытие WebDriver
     end
   
     def self.load_ports_from_file
+      # Загрузка списка портов из файла
       default_ports = [443, 21, 22, 23, 25, 53, 79, 80, 110, 111, 119, 139, 513, 8000, 8080, 8888]
       
       begin
         if File.exist?(PORTS_FILE)
           File.readlines(PORTS_FILE)
-            .map(&:strip)
-            .reject(&:empty?)
-            .map(&:to_i)
+              .map(&:strip)
+              .reject(&:empty?)
+              .map(&:to_i)
         else
-          debug_log(:warn, "Ports file not found. Using default ports list.")
+          debug_log(:warn, "Файл портов не найден. Используется стандартный список портов.")
           default_ports
         end
       rescue SystemCallError => e
-        debug_log(:error, "Could not read ports file: #{e.message}")
+        debug_log(:error, "Не удалось прочитать файл портов: #{e.message}")
         default_ports
       end
     end
   
     def debug_log(level, message)
+      # Логирование отладочной информации
       return unless DEBUG_LEVELS[level] <= @debug_level
       
       formatted_message = "[#{Time.now}][#{level.upcase}] #{message}"
@@ -98,6 +122,7 @@ module WebsiteParser
     end
   
     def get_debug_info
+      # Получение отладочной информации
       {
         connection_stats: connection_stats,
         recent_errors: @debug_info[:errors].last(10),
@@ -107,6 +132,7 @@ module WebsiteParser
     end
   
     def to_json_data(results)
+      # Формирование JSON-данных для результатов
       json_data = results.map do |result|
         {
           port: result[:port],
@@ -123,12 +149,14 @@ module WebsiteParser
             tokens: {
               structure: result[:structure_tokens],
               html: result[:html_tokens],
-              code: result[:code_tokens]
+              code: result[:code_tokens],
+              js: result[:js_tokens] # Добавлено для JavaScript-токенов
             },
             lemmas: {
               structure: result[:structure_lemmas],
               html: result[:html_lemmas],
-              code: result[:code_lemmas]
+              code: result[:code_lemmas],
+              js: result[:js_lemmas] # Добавлено для JavaScript-лемм
             }
           }
         }
@@ -148,7 +176,21 @@ module WebsiteParser
   
     private
   
+    def initialize_webdriver
+      # Инициализация Selenium WebDriver
+      options = Selenium::WebDriver::Chrome::Options.new
+      options.add_argument('--headless') # Без графического интерфейса
+      options.add_argument('--disable-gpu')
+      options.add_argument('--no-sandbox')
+      options.add_argument("--user-agent=#{USER_AGENT}")
+      Selenium::WebDriver.for(:chrome, options: options)
+    rescue StandardError => e
+      debug_log(:error, "Ошибка инициализации WebDriver: #{e.message}")
+      nil
+    end
+  
     def connection_stats
+      # Статистика соединений
       {
         total_attempts: @debug_info[:connection_attempts].values.sum,
         successful_attempts: @debug_info[:connection_attempts].values.count { |v| v > 0 },
@@ -157,24 +199,26 @@ module WebsiteParser
     end
   
     def calculate_average_parsing_time
+      # Расчет среднего времени обработки
       times = @debug_info[:parsing_times].values
       return 0 if times.empty?
       times.sum.to_f / times.size
     end
   
     def process_port(port)
+      # Обработка порта
       start_time = Time.now
       @debug_info[:connection_attempts][port] ||= 0
       @debug_info[:connection_attempts][port] += 1
   
       begin
-        debug_log(:info, "Starting processing of port #{port}")
+        debug_log(:info, "Начало обработки порта #{port}")
         
         result = perform_port_processing(port)
         
         parsing_time = Time.now - start_time
         @debug_info[:parsing_times][port] = parsing_time
-        debug_log(:info, "Port #{port} processed in #{parsing_time.round(2)} seconds")
+        debug_log(:info, "Порт #{port} обработан за #{parsing_time.round(2)} секунд")
         
         result
       rescue => e
@@ -183,29 +227,53 @@ module WebsiteParser
     end
   
     def perform_port_processing(port)
+      # Выполнение обработки порта
       @uri.port = port
-      debug_log(:debug, "Connecting to #{@uri} through port #{port}")
+      debug_log(:debug, "Подключение к #{@uri} через порт #{port}")
       
       html = fetch_html_with_retry(port)
       validate_and_parse_html(port, html)
     end
   
     def fetch_html_with_retry(port, max_retries = 3)
+      # Повторная попытка получения HTML
       retries = 0
       begin
-        html = fetch_html
-        debug_log(:debug, "Successfully fetched HTML from port #{port}")
+        html = fetch_dynamic_html(port)
+        debug_log(:debug, "Успешно получен HTML с порта #{port}")
         html
       rescue => e
         retries += 1
-        debug_log(:error, "Attempt #{retries} failed for port #{port}: #{e.message}")
+        debug_log(:error, "Попытка #{retries} не удалась для порта #{port}: #{e.message}")
         retry if retries < max_retries
         raise e
       end
     end
   
+    def fetch_dynamic_html(port)
+      # Получение HTML с учетом JavaScript
+      return fetch_html unless @driver # Падение на статический метод, если WebDriver не инициализирован
+      
+      @uri.port = port
+      @driver.navigate.to(@uri.to_s)
+      
+      # Ожидание загрузки JavaScript (до 10 секунд)
+      Selenium::WebDriver::Wait.new(timeout: 10).until do
+        @driver.execute_script('return document.readyState') == 'complete'
+      end
+      
+      # Получение HTML после выполнения JavaScript
+      html = @driver.page_source
+      html.force_encoding('UTF-8')
+      html
+    rescue Selenium::WebDriver::Error::WebDriverError => e
+      debug_log(:error, "Ошибка WebDriver при загрузке страницы: #{e.message}")
+      nil
+    end
+  
     def fetch_html
-      raise 'Invalid URI' unless @uri.is_a?(URI)
+      # Статическое получение HTML через Net::HTTP
+      raise 'Недопустимый URI' unless @uri.is_a?(URI)
   
       http = Net::HTTP.new(@uri.host, @uri.port)
       http.open_timeout = DEFAULT_CONNECT_TIMEOUT
@@ -227,10 +295,11 @@ module WebsiteParser
     end
   
     def handle_http_response(response)
+      # Обработка HTTP-ответа
       max_redirects = MAX_REDIRECTS
       
       while response.is_a?(Net::HTTPRedirection) && max_redirects > 0
-        debug_log(:info, "Following redirect to #{response['location']}")
+        debug_log(:info, "Следование редиректу на #{response['location']}")
         @uri = URI(response['location'])
         response = fetch_html
         max_redirects -= 1
@@ -240,31 +309,33 @@ module WebsiteParser
       when Net::HTTPSuccess
         response.body.force_encoding('UTF-8')
       else
-        debug_log(:error, "HTTP request failed: #{response.code} #{response.message}")
+        debug_log(:error, "HTTP-запрос не удался: #{response.code} #{response.message}")
         nil
       end
     end
   
     def validate_and_parse_html(port, html)
+      # Валидация и разбор HTML
       if html.nil? || html.empty?
-        debug_log(:error, "Empty HTML content received from port #{port}")
-        return create_error_result(port, "Empty HTML content")
+        debug_log(:error, "Получен пустой HTML с порта #{port}")
+        return create_error_result(port, "Пустой HTML-контент")
       end
   
       html = html.to_s if html.respond_to?(:to_s)
       
       begin
         doc = Nokogiri::HTML(html)
-        debug_log(:debug, "Successfully parsed HTML from port #{port}")
+        debug_log(:debug, "Успешно разобран HTML с порта #{port}")
         
         process_parsed_document(port, doc, html)
       rescue => e
-        debug_log(:error, "HTML parsing error on port #{port}: #{e.message}")
-        create_error_result(port, "Unable to parse HTML: #{e.message}")
+        debug_log(:error, "Ошибка разбора HTML на порте #{port}: #{e.message}")
+        create_error_result(port, "Не удалось разобрать HTML: #{e.message}")
       end
     end
   
     def process_parsed_document(port, doc, html)
+      # Обработка разобранного документа
       begin
         save_html(html, port)
         
@@ -279,37 +350,40 @@ module WebsiteParser
           structure_tokens: tokenize_structure(structure),
           html_tokens: tokenize_html(html),
           code_tokens: tokenize_code(html),
+          js_tokens: tokenize_javascript(html), # Добавлено для токенов JavaScript
           structure_lemmas: safe_process_lemmas { lemmatize_structure(structure) },
           html_lemmas: safe_process_lemmas { lemmatize_html(html) },
-          code_lemmas: safe_process_lemmas { lemmatize_code(html) }
+          code_lemmas: safe_process_lemmas { lemmatize_code(html) },
+          js_lemmas: safe_process_lemmas { lemmatize_javascript(html) } # Добавлено для лемм JavaScript
         }
       rescue => e
-        debug_log(:error, "Data processing error on port #{port}: #{e.message}")
+        debug_log(:error, "Ошибка обработки данных на порте #{port}: #{e.message}")
         debug_log(:error, e.backtrace.join("\n"))
-        create_error_result(port, "Error processing data: #{e.message}")
+        create_error_result(port, "Ошибка обработки данных: #{e.message}")
       end
     end
   
     def safe_process_lemmas
+      # Безопасная обработка лемматизации
       begin
         yield
       rescue => e
-        debug_log(:error, "Lemmatization process failed: #{e.message}")
-        [] # Return empty array if lemmatization fails
+        debug_log(:error, "Ошибка процесса лемматизации: #{e.message}")
+        []
       end
     end
     
     def extract_title(doc)
-      # Safely extract title with fallback to empty string
+      # Извлечение заголовка страницы
       doc.title.to_s.strip
     end
     
     def extract_meta_tags(doc)
+      # Извлечение мета-тегов
       doc.css('meta').map do |meta|
         name = meta['name'] || meta['property'] || ''
         content = meta['content'] || ''
         
-        # Ensure we're working with strings
         name = name.to_s
         content = content.to_s
         
@@ -321,6 +395,7 @@ module WebsiteParser
     end
     
     def extract_structure(doc)
+      # Извлечение структуры документа
       return [] unless doc&.at('html')
       
       structure = []
@@ -329,10 +404,10 @@ module WebsiteParser
     end
     
     def traverse_node(node, structure, depth = 0)
+      # Рекурсивный обход узлов документа
       return unless node
       
       if node.element?
-        # Convert attributes to a safe hash format
         attributes = node.attributes.transform_values { |attr| attr.value.to_s }
         
         element = { 
@@ -349,6 +424,7 @@ module WebsiteParser
     end
     
     def tokenize_structure(structure)
+      # Токенизация структуры
       return [] unless structure
       
       tokens = []
@@ -367,6 +443,7 @@ module WebsiteParser
     end
   
     def tokenize_html(html)
+      # Токенизация HTML
       tokens = []
       scanner = StringScanner.new(html)
       
@@ -385,6 +462,7 @@ module WebsiteParser
     end
   
     def tokenize_code(html)
+      # Токенизация кода (CSS/JavaScript)
       tokens = []
       scanner = StringScanner.new(html)
   
@@ -410,11 +488,57 @@ module WebsiteParser
       tokens
     end
   
+    def tokenize_javascript(html)
+      # Токенизация JavaScript из HTML
+      tokens = []
+      doc = Nokogiri::HTML(html)
+      scripts = doc.css('script').map(&:content).join("\n")
+      scanner = StringScanner.new(scripts)
+      
+      until scanner.eos?
+        if scanner.scan(/\b(function|var|let|const|if|else|for|while|do|class|return|async|await)\b/)
+          tokens << { type: :js_keyword, value: scanner.matched }
+        elsif scanner.scan(/[a-zA-Z_]\w*/)
+          tokens << { type: :js_identifier, value: scanner.matched }
+        elsif scanner.scan(/[0-9]+(?:\.[0-9]+)?/)
+          tokens << { type: :js_number, value: scanner.matched }
+        elsif scanner.scan(/["'](?:\\.|[^"'])*["']/)
+          tokens << { type: :js_string, value: scanner.matched }
+        elsif scanner.scan(/[{}()\[\]]/)
+          tokens << { type: :js_bracket, value: scanner.matched }
+        elsif scanner.scan(/[+\-*\/=<>!&|;,.]/)
+          tokens << { type: :js_operator, value: scanner.matched }
+        elsif scanner.scan(/\s+/)
+          tokens << { type: :js_whitespace, value: scanner.matched }
+        else
+          scanner.getch
+        end
+      end
+      tokens
+    end
+  
+    def lemmatize_javascript(html)
+      # Лемматизация JavaScript
+      tokens = tokenize_javascript(html)
+      tokens.map do |token|
+        case token[:type]
+        when :js_identifier
+          { type: :js_identifier_lemma, value: @lemmatizer.lemma(token[:value]) }
+        when :js_string
+          { type: :js_string_lemma, value: lemmatize_text(token[:value]).map { |l| l[:value] }.join(' ') }
+        else
+          token
+        end
+      end
+    end
+  
     def tokenize_text(text)
+      # Токенизация текста
       text.split(/\s+/).map { |word| { type: :word, value: word } }
     end
   
     def lemmatize_structure(structure)
+      # Лемматизация структуры
       lemmas = []
       structure.each do |element|
         if element[:text]
@@ -430,6 +554,7 @@ module WebsiteParser
     end
   
     def lemmatize_html(html)
+      # Лемматизация HTML
       tokens = tokenize_html(html)
       tokens.map do |token|
         case token[:type]
@@ -444,6 +569,7 @@ module WebsiteParser
     end
   
     def lemmatize_code(code)
+      # Лемматизация кода
       tokens = tokenize_code(code)
       tokens.map do |token|
         case token[:type]
@@ -458,265 +584,43 @@ module WebsiteParser
     end
   
     def lemmatize_text(text)
+      # Лемматизация текста
       text.split(/\s+/).map do |word|
         { type: :word_lemma, value: @lemmatizer.lemma(word.downcase) }
       end
     end
   
     def update_progress(index, total_ports)
+      # Обновление прогресса
       return unless @progress_callback
       progress = ((index + 1).to_f / total_ports * 100).round
       @progress_callback.call(progress)
     end
   
     def handle_port_error(port, error)
+      # Обработка ошибок порта
       error_message = "#{error.class}: #{error.message}"
-      debug_log(:error, "Port #{port} processing error: #{error_message}\n#{error.backtrace.join("\n")}")
+      debug_log(:error, "Ошибка обработки порта #{port}: #{error_message}\n#{error.backtrace.join("\n")}")
       create_error_result(port, error_message)
     end
   
     def create_error_result(port, error_message)
+      # Создание результата с ошибкой
       {
         port: port,
         error: error_message
       }
     end
   
-    def log_error(port, message)
-      @logger.error("Port #{port}: #{message}")
-    end
-  
-    def ensure_url_scheme(url)
-      url = "https://#{url}" unless url.start_with?('http://', 'https://')
-      url
-    end
-    
-    def fetch_html
-      begin
-        # Проверка корректности @uri
-        raise 'Invalid URI' unless @uri.is_a?(URI)
-    
-        http = Net::HTTP.new(@uri.host, @uri.port)
-        http.open_timeout = DEFAULT_CONNECT_TIMEOUT
-        http.read_timeout = DEFAULT_READ_TIMEOUT
-    
-        if @uri.scheme == 'https'
-          http.use_ssl = true
-          http.verify_mode = OpenSSL::SSL::VERIFY_PEER
-          http.ca_file = OpenSSL::X509::DEFAULT_CERT_FILE
-        end
-    
-        request = Net::HTTP::Get.new(@uri.request_uri)
-        request['User-Agent'] = USER_AGENT
-        request['Accept-Language'] = 'en-US,en;q=0.9'
-        request['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-    
-        response = http.request(request)
-    
-        max_redirects = MAX_REDIRECTS
-        while response.is_a?(Net::HTTPRedirection) && max_redirects > 0
-          redirect_url = response['location']
-          @uri = URI(redirect_url)
-    
-          http = Net::HTTP.new(@uri.host, @uri.port)
-          http.use_ssl = true if @uri.scheme == 'https'
-    
-          response = http.request(Net::HTTP::Get.new(@uri.request_uri))
-          max_redirects -= 1
-        end
-    
-        case response
-        when Net::HTTPSuccess
-          if response.body.is_a?(String)
-            response.body.force_encoding('UTF-8')
-          else
-            @logger.error "Received invalid response body"
-            nil
-          end
-        else
-          @logger.error "HTTP request failed: #{response.code} #{response.message}"
-          nil
-        end
-      rescue => e
-        # Выводим сообщение об ошибке и трассировку стека
-        @logger.error "An error occurred: #{e.message}"
-        @logger.error e.backtrace.join("\n")
-        nil # Возвращаем nil или другое значение, если нужно
-      end
-    end
-  
-    def some_method
-      begin
-        # Ваш код, который может вызвать ошибку
-        doc = Nokogiri::HTML(html)
-        # Остальной код
-      rescue => e
-        @logger.error "An error occurred: #{e.message}"
-        @logger.error e.backtrace.join("\n")
-        nil # или другие действия для обработки ошибки
-      end
-    end
-  
     def save_html(html, port)
+      # Сохранение HTML в файл
       filename = "#{HTML_DIR}/#{@uri.host}_port_#{port}_#{Time.now.strftime('%Y%m%d_%H%M%S')}.html"
       File.write(filename, html)
-      @logger.info("HTML saved to file: #{filename}")
+      debug_log(:info, "HTML сохранен в файл: #{filename}")
     end
-  
-    def extract_meta_tags(doc)
-      doc.css('meta').map do |meta|
-        { 
-          name: (meta['name'] || meta['property'] || ''), 
-          content: (meta['content'] || '')
-        }
-      end.reject { |tag| tag[:name].empty? && tag[:content].empty? }
-    end
-  
-    def extract_structure(doc)
-      structure = []
-      traverse_node(doc.at('html'), structure)
-      structure
-    end
-  
-    def traverse_node(node, structure, depth = 0)
-      if node.element?
-        element = { name: node.name, attributes: node.attributes.to_h, depth: depth }
-        structure << element
-        node.children.each { |child| traverse_node(child, structure, depth + 1) }
-      elsif node.text? && !node.content.strip.empty?
-        structure << { text: node.content.strip, depth: depth }
-      end
-    end
-  
-    def tokenize_structure(structure)
-      tokens = []
-      structure.each do |element|
-        if element[:text]
-          tokens.concat(tokenize_text(element[:text]))
-        elsif element[:name]
-          tokens << { type: :tag_open, value: element[:name] }
-          element[:attributes]&.each do |name, value|
-            tokens << { type: :attribute, value: "#{name}=\"#{value}\"" }
-          end
-          tokens << { type: :tag_close, value: element[:name] }
-        end
-      end
-      tokens
-    end
-  
-    def tokenize_html(html)
-      tokens = []
-      scanner = StringScanner.new(html)
-    
-      until scanner.eos?
-        if scanner.scan(/\s+/)
-          tokens << { type: :whitespace, value: scanner.matched }
-        elsif scanner.scan(/<[^>]+>/)
-          tokens << { type: :tag, value: scanner.matched }
-        elsif scanner.scan(/[^<]+/)
-          tokens << { type: :text, value: scanner.matched }
-        else
-          scanner.getch
-        end
-      end
-      tokens
-    end
-  
-    def tokenize_code(code)
-      tokens = []
-      scanner = StringScanner.new(code)
-  
-      until scanner.eos?
-        if scanner.scan(/\b(function|var|let|const|if|else|for|while|do|class|return)\b/)
-          tokens << { type: :keyword, value: scanner.matched }
-        elsif scanner.scan(/[a-zA-Z_]\w*/)
-          tokens << { type: :identifier, value: scanner.matched }
-        elsif scanner.scan(/[0-9]+(?:\.[0-9]+)?/)
-          tokens << { type: :number, value: scanner.matched }
-        elsif scanner.scan(/["'](?:\\.|[^"'])*["']/)
-          tokens << { type: :string, value: scanner.matched }
-        elsif scanner.scan(/[{}()\[\]]/)
-          tokens << { type: :bracket, value: scanner.matched }
-        elsif scanner.scan(/[+\-*\/=<>!&|;,.]/)
-          tokens << { type: :operator, value: scanner.matched }
-        elsif scanner.scan(/\s+/)
-          tokens << { type: :whitespace, value: scanner.matched }
-        else
-          scanner.getch
-        end
-      end
-      tokens
-    end
-  
-    def tokenize_text(text)
-      text.split(/\s+/).map { |word| { type: :word, value: word } }
-    end
-  
-    def self.log_action(message)
-      puts "[#{Time.now}] #{message}"
-    end
-  
-    def log_action(message)
-      self.class.log_action(message)
-    end
-  
-    def lemmatize_structure(structure)
-      lemmas = []
-      structure.each do |element|
-        if element[:text]
-          lemmas.concat(lemmatize_text(element[:text]))
-        elsif element[:name]
-          lemmas << { type: :tag_lemma, value: @lemmatizer.lemma(element[:name].to_s) }
-          element[:attributes]&.each do |name, value|
-            # Convert both name and value to strings before lemmatization
-            attr_name = name.to_s
-            attr_value = value.respond_to?(:value) ? value.value : value.to_s
-            lemmas << { 
-              type: :attribute_lemma, 
-              value: "#{@lemmatizer.lemma(attr_name)}=#{@lemmatizer.lemma(attr_value)}"
-            }
-          end
-        end
-      end
-      lemmas
-    end
-  
-    def lemmatize_html(html)
-      tokens = tokenize_html(html)
-      tokens.map do |token|
-        case token[:type]
-        when :text
-          { type: :text_lemma, value: lemmatize_text(token[:value]).map { |l| l[:value] }.join(' ') }
-        when :tag
-          { type: :tag_lemma, value: @lemmatizer.lemma(token[:value].gsub(/[<>\/]/, '')) }
-        else
-          token
-        end
-      end
-    end
-  
-    def lemmatize_code(code)
-      tokens = tokenize_code(code)
-      tokens.map do |token|
-        case token[:type]
-        when :identifier
-          { type: :identifier_lemma, value: @lemmatizer.lemma(token[:value]) }
-        when :string
-          { type: :string_lemma, value: lemmatize_text(token[:value]).map { |l| l[:value] }.join(' ') }
-        else
-          token
-        end
-      end
-    end
-  
-    def lemmatize_text(text)
-      text.split(/\s+/).map do |word|
-        { type: :word_lemma, value: @lemmatizer.lemma(word.downcase) }
-      end
-    end
-  
   
     def count_element_types(structure)
+      # Подсчет типов элементов
       return {} unless structure
       
       element_counts = Hash.new(0)
@@ -728,6 +632,11 @@ module WebsiteParser
         end
       end
       element_counts
+    end
+
+    def ensure_url_scheme(url)
+      # Добавление схемы к URL, если она отсутствует
+      url.start_with?('http://') || url.start_with?('https://') ? url : "https://#{url}"
     end
   end
 end
